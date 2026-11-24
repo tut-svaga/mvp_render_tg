@@ -64,7 +64,7 @@ def main() -> int:
     parser.add_argument("--timezone", default="Europe/Chisinau", help="IANA timezone (default: Europe/Chisinau)")
     parser.add_argument("--scraper-dir", type=Path, default=ROOT / "forexfactory-scraper")
     parser.add_argument("--update-script", type=Path, default=ROOT / "forexfactory-scraper" / "update.py")
-    parser.add_argument("--cache", type=Path, default=ROOT / "data" / "forex_factory_cache.csv")
+    parser.add_argument("--cache", type=Path, default=ROOT / "forexfactory-scraper" / "data" / "economic_data" / "forex_factory_cache.csv")
     parser.add_argument("--model", type=Path, default=ROOT / "stage_d_model.json")
     parser.add_argument("--watcher", type=Path, default=ROOT / "stage_d_cache_watcher.py")
     parser.add_argument("--predictor", type=Path, default=ROOT / "stage_d_predict_existing.py")
