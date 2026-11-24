@@ -42,7 +42,7 @@ REPORTS = [
 # ... 8 date, ... 14 repeated title, 15 repeated actual, 16 repeated forecast,
 # 17 repeated previous, ...
 POSITIONAL = {
-    "datetime": [0, 10, 11, 8],
+    "datetime": [8, 0, 10, 11],
     "title": [3, 14],
     "actual": [4, 15],
     "forecast": [5, 16],
@@ -113,8 +113,17 @@ def first_filled(values: list[str]) -> str:
 
 
 def event_date_for_row(row: list[str], datetime_indices: list[int]) -> Optional[date]:
-    # Try configured datetime/date columns first, then common positional fields.
+    # Prefer a plain local calendar-date column over ISO timestamps. A release
+    # at 01:10 local may still have the previous UTC date in datetime_utc.
     indices = list(dict.fromkeys(datetime_indices + POSITIONAL["datetime"]))
+    for i in indices:
+        if i < len(row):
+            text = (row[i] or "").strip()
+            if len(text) == 10:
+                try:
+                    return date.fromisoformat(text)
+                except ValueError:
+                    pass
     for i in indices:
         if i < len(row):
             d = parse_date(row[i])
@@ -177,10 +186,29 @@ def read_cache(cache_path: Path, target_date: date) -> tuple[dict[str, dict[str,
         record = found.get(name)
         if not record or not is_filled(record.get("forecast")):
             missing.append(f"{name} (Forecast отсутствует)")
-        elif not is_filled(record.get("actual")):
+            continue
+        if not is_filled(record.get("previous")):
+            missing.append(f"{name} (Previous отсутствует)")
+            continue
+        if not is_filled(record.get("actual")):
             missing.append(f"{name} (Actual ещё не опубликован)")
 
     return found, missing, matched_rows
+
+
+def pre_release_missing(found: dict[str, dict[str, str]]) -> list[str]:
+    """Validate calendar completeness before release without requiring Actual."""
+    missing = []
+    for name in REPORTS:
+        record = found.get(name)
+        if not record:
+            missing.append(f"{name} (событие отсутствует в календаре)")
+            continue
+        if not is_filled(record.get("forecast")):
+            missing.append(f"{name} (Forecast отсутствует)")
+        if not is_filled(record.get("previous")):
+            missing.append(f"{name} (Previous отсутствует)")
+    return missing
 
 
 def atomic_write_json(path: Path, payload: dict) -> None:
@@ -200,6 +228,8 @@ def main() -> int:
     parser.add_argument("--date", required=True, help="Release date in YYYY-MM-DD, e.g. 2026-11-25")
     parser.add_argument("--output-json", required=True, type=Path, help="Output JSON for Stage D --input-json")
     parser.add_argument("--once", action="store_true", help="Check cache once and exit; do not wait")
+    parser.add_argument("--pre-release", action="store_true",
+                        help="Check all eight calendar rows have Forecast and Previous; Actual is not required.")
     parser.add_argument("--poll-seconds", type=float, default=5.0, help="Polling interval in watch mode (default: 5)")
     parser.add_argument("--timeout-minutes", type=float, default=75.0, help="Stop waiting after this many minutes (default: 75; 0 = no timeout)")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
@@ -230,6 +260,23 @@ def main() -> int:
 
         LOG.info("Scan %d: date=%s; matching cache rows=%d; reports with rows=%d/8",
                  attempt, target_date.isoformat(), matched_rows, len(found))
+
+        if args.pre_release:
+            pre_missing = pre_release_missing(found)
+            if not pre_missing:
+                LOG.info("Pre-release calendar ready: all 8 reports have Forecast and Previous. Actual is not required.")
+                return 0
+            LOG.info("Pre-release calendar is incomplete (%d item(s)):", len(pre_missing))
+            for item in pre_missing:
+                LOG.info("  - %s", item)
+            if args.once:
+                return 2
+            elapsed = time.monotonic() - start
+            if args.timeout_minutes > 0 and elapsed >= args.timeout_minutes * 60:
+                LOG.error("Timeout while waiting for the pre-release calendar to become complete.")
+                return 3
+            time.sleep(args.poll_seconds)
+            continue
 
         if not missing and all(is_filled(found[name]["actual"]) and is_filled(found[name]["forecast"]) for name in REPORTS):
             payload = {
