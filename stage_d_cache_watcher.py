@@ -115,14 +115,15 @@ def first_filled(values: list[str]) -> str:
 def event_date_for_row(row: list[str], datetime_indices: list[int]) -> Optional[date]:
     # Prefer a plain local calendar-date column over ISO timestamps. A release
     # at 01:10 local may still have the previous UTC date in datetime_utc.
-    for i, value in enumerate(row):
-        text = (value or "").strip()
-        if len(text) == 10:
-            try:
-                return date.fromisoformat(text)
-            except ValueError:
-                pass
     indices = list(dict.fromkeys(datetime_indices + POSITIONAL["datetime"]))
+    for i in indices:
+        if i < len(row):
+            text = (row[i] or "").strip()
+            if len(text) == 10:
+                try:
+                    return date.fromisoformat(text)
+                except ValueError:
+                    pass
     for i in indices:
         if i < len(row):
             d = parse_date(row[i])
