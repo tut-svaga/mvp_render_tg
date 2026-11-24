@@ -113,7 +113,7 @@ def prepare_test_cache(template: Path, destination: Path, release_date: str,
     if not rows:
         raise ValueError("Test cache template is empty.")
     header = [value.strip().lower() for value in rows[0]]
-    event_i = header.index("event") if "event" in header else header.index("event") if "event" in header else None
+    event_i = header.index("event") if "event" in header else None
     if event_i is None:
         raise ValueError("Test cache template has no Event column.")
     actual_indices = [i for i, value in enumerate(header) if value == "actual"]
