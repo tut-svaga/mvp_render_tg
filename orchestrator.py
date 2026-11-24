@@ -113,12 +113,18 @@ def main() -> int:
         ("release time", release),
     ]
     now = datetime.now(tz)
-    for label, checkpoint in checkpoints:
-        if now <= checkpoint:
+    if now < release:
+        for label, checkpoint in checkpoints:
+            if checkpoint < now:
+                continue
             wait_until(checkpoint)
-        LOG.info("Checkpoint %s (%s)", label, checkpoint.strftime("%Y-%m-%d %H:%M %Z"))
+            LOG.info("Checkpoint %s (%s)", label, checkpoint.strftime("%Y-%m-%d %H:%M %Z"))
+            run_update(update_script, scraper_dir)
+    else:
+        # If started after the scheduled release, do one immediate refresh,
+        # then continue the regular post-release polling loop.
+        LOG.info("Started at/after release time; performing an immediate refresh.")
         run_update(update_script, scraper_dir)
-        now = datetime.now(tz)
 
     deadline = release + timedelta(minutes=args.max_wait_minutes)
     attempt = 0
