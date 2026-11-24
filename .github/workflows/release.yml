@@ -3,9 +3,18 @@ name: XAUUSD release
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "Choose real release run or synthetic Telegram test"
+        required: true
+        default: "test"
+        type: choice
+        options:
+          - test
+          - release
       release_date:
         description: "Release date (YYYY-MM-DD)"
         required: true
+        default: "2026-11-25"
         type: string
       release_time:
         description: "Release time in Europe/Chisinau"
@@ -17,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: xauusd-release-${{ inputs.release_date }}-${{ inputs.release_time }}
+  group: xauusd-${{ inputs.mode }}-${{ inputs.release_date }}-${{ inputs.release_time }}
   cancel-in-progress: false
 
 jobs:
@@ -27,24 +36,36 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            forexfactory-scraper/requirements.txt
 
       - name: Install dependencies
-        run: python -m pip install --upgrade pip && pip install -r requirements.txt
-
-      - name: Verify scraper checkout
         run: |
-          test -d forexfactory-scraper || (echo "::error::forexfactory-scraper directory is missing"; exit 1)
-          test -f forexfactory-scraper/update.py || (echo "::error::forexfactory-scraper/update.py is missing"; exit 1)
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r forexfactory-scraper/requirements.txt
 
-      - name: Run release orchestrator
+      - name: Verify scraper source
+        run: |
+          test -f forexfactory-scraper/update.py
+          test -f forexfactory-scraper/src/forexfactory/main.py
+
+      - name: Run synthetic end-to-end Telegram test
+        if: inputs.mode == 'test'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID_SER: ${{ secrets.TELEGRAM_CHAT_ID_SER }}
+        run: python test_pipeline.py
+
+      - name: Run real release orchestrator
+        if: inputs.mode == 'release'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID_SER: ${{ secrets.TELEGRAM_CHAT_ID_SER }}
