@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Choose real release run or synthetic Telegram test"
+        description: "Isolated end-to-end test or real release"
         required: true
         default: "test"
         type: choice
@@ -17,9 +17,9 @@ on:
         default: "2026-11-25"
         type: string
       release_time:
-        description: "Release time in Europe/Chisinau"
+        description: "Release time in Europe/Chisinau (test default: 01:10)"
         required: true
-        default: "15:30"
+        default: "01:10"
         type: string
 
 permissions:
@@ -57,12 +57,24 @@ jobs:
           test -f forexfactory-scraper/update.py
           test -f forexfactory-scraper/src/forexfactory/main.py
 
-      - name: Run synthetic end-to-end Telegram test
+      - name: Run watcher regression tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run isolated end-to-end test through production orchestrator
         if: inputs.mode == 'test'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID_SER: ${{ secrets.TELEGRAM_CHAT_ID_SER }}
-        run: python test_pipeline.py
+        run: |
+          python orchestrator.py \
+            --mode test \
+            --release-date "${{ inputs.release_date }}" \
+            --release-time "${{ inputs.release_time }}" \
+            --timezone "Europe/Chisinau" \
+            --poll-seconds 60 \
+            --max-wait-minutes 75 \
+            --test-checkpoint-seconds 10 \
+            --test-release-gap-seconds 5
 
       - name: Run real release orchestrator
         if: inputs.mode == 'release'
@@ -71,6 +83,9 @@ jobs:
           TELEGRAM_CHAT_ID_SER: ${{ secrets.TELEGRAM_CHAT_ID_SER }}
         run: |
           python orchestrator.py \
+            --mode release \
             --release-date "${{ inputs.release_date }}" \
             --release-time "${{ inputs.release_time }}" \
-            --timezone "Europe/Chisinau"
+            --timezone "Europe/Chisinau" \
+            --poll-seconds 60 \
+            --max-wait-minutes 75
