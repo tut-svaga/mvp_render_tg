@@ -1,1 +1,7 @@
 .env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+output_stage_d/
