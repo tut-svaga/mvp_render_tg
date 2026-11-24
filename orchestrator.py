@@ -221,9 +221,9 @@ def run_prediction(predictor: Path, model: Path, input_json: Path,
     if not message_path.is_file():
         raise FileNotFoundError("Prediction did not create the Telegram message.")
     message = message_path.read_text(encoding="utf-8")
-    prefix = "<b>TEST — синтетические Actual, не реальные данные</b>\\n" if test_mode else ""
+    prefix = "<b>TEST — синтетические Actual, не реальные данные</b>\n" if test_mode else ""
     label = release.strftime("%d.%m.%Y %H:%M %Z")
-    message_path.write_text(prefix + f"<b>Публикация: {label}</b>\\n\\n" + message,
+    message_path.write_text(prefix + f"<b>Публикация: {label}</b>\n\n" + message,
                             encoding="utf-8")
     subprocess.run([sys.executable, str(telegram_script)], cwd=ROOT, check=True)
 
