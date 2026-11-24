@@ -46,6 +46,21 @@ def run_update(script: Path, scraper_dir: Path, cache: Path, timezone: str) -> N
         raise RuntimeError(f"Forex Factory update.py exited with code {result.returncode}")
 
 
+def refresh_with_retry(script: Path, scraper_dir: Path, cache: Path,
+                       timezone: str, attempts: int = 3) -> None:
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            run_update(script, scraper_dir, cache, timezone)
+            return
+        except Exception as exc:
+            last_error = exc
+            LOG.exception("Forex Factory refresh failed (%d/%d).", attempt, attempts)
+            if attempt < attempts:
+                time.sleep(10)
+    raise RuntimeError(f"Forex Factory refresh failed after {attempts} attempts: {last_error}")
+
+
 def watcher_check(watcher: Path, cache: Path, release_date: str,
                   output_json: Path, *, pre_release: bool = False) -> bool:
     command = [
@@ -237,6 +252,9 @@ def main() -> int:
     if args.poll_seconds < 1 or args.max_wait_minutes < 1:
         parser.error("--poll-seconds and --max-wait-minutes must be positive")
 
+    if not os.getenv("TELEGRAM_BOT_TOKEN") or not os.getenv("TELEGRAM_CHAT_ID_SER"):
+        raise RuntimeError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID_SER must be configured before starting.")
+
     test_mode = args.mode == "test"
     cache = absolute(args.test_cache) if test_mode else production_cache
     input_json = output_dir / ("stage_d_actuals_test.json" if test_mode else "stage_d_actuals.json")
@@ -254,7 +272,7 @@ def main() -> int:
                            args.release_date, args.release_time)
         LOG.warning("TEST MODE: production cache is not used or modified.")
         # Same updater, same CSV format and same cache path contract as release mode.
-        run_update(update_script, scraper_dir, cache, args.timezone)
+        refresh_with_retry(update_script, scraper_dir, cache, args.timezone)
         clear_actuals(cache)
         if not watcher_check(watcher, cache, args.release_date, input_json, pre_release=True):
             raise RuntimeError("Test calendar fixture failed pre-release Forecast/Previous validation.")
@@ -270,7 +288,7 @@ def main() -> int:
     else:
         # Always fetch immediately, even if the workflow starts between checkpoints.
         LOG.info("Initial calendar refresh at workflow start.")
-        run_update(update_script, scraper_dir, production_cache, args.timezone)
+        refresh_with_retry(update_script, scraper_dir, production_cache, args.timezone)
         if not watcher_check(watcher, production_cache, args.release_date,
                              input_json, pre_release=True):
             raise RuntimeError(
@@ -312,7 +330,12 @@ def main() -> int:
             else:
                 inject_test_actuals(cache, args.release_date, list(REPORTS))
         else:
-            run_update(update_script, scraper_dir, production_cache, args.timezone)
+            try:
+                refresh_with_retry(update_script, scraper_dir, production_cache, args.timezone)
+            except Exception:
+                # A transient source/network error must not terminate the full
+                # Actual wait; inspect the last valid cache and retry next cycle.
+                LOG.exception("Calendar refresh failed during Actual polling; will retry.")
 
         if watcher_check(watcher, cache, args.release_date, input_json):
             LOG.info("All eight Actual/Forecast pairs are present. Proceeding to Stage D.")
