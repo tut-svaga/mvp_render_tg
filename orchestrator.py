@@ -33,7 +33,7 @@ def run_update(update_script: Path, scraper_dir: Path) -> None:
     if not update_script.is_file():
         raise FileNotFoundError(
             f"Forex Factory updater not found: {update_script}. "
-            "Check the scraper submodule checkout and --update-script."
+            "Check the vendored scraper directory and --update-script."
         )
     LOG.info("Updating Forex Factory cache: %s (cwd=%s)", update_script, scraper_dir)
     result = subprocess.run([sys.executable, str(update_script)], cwd=scraper_dir)
@@ -104,7 +104,7 @@ def main() -> int:
     if not scraper_dir.is_dir():
         raise FileNotFoundError(
             f"Scraper directory not found: {scraper_dir}. "
-            "The forexfactory-scraper submodule must be checked out."
+            "The forexfactory-scraper directory must be present."
         )
 
     checkpoints = [
