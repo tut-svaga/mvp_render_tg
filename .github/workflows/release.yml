@@ -4,22 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Choose real release run or synthetic Telegram test"
+        description: "Accelerated end-to-end test or real release"
         required: true
         default: "test"
         type: choice
-        options:
-          - test
-          - release
+        options: [test, release]
       release_date:
-        description: "Release date (YYYY-MM-DD)"
+        description: "Event date in cache (YYYY-MM-DD)"
         required: true
         default: "2026-11-25"
         type: string
       release_time:
-        description: "Release time in Europe/Chisinau"
+        description: "Release label (test default: 00:30)"
         required: true
-        default: "15:30"
+        default: "00:30"
         type: string
 
 permissions:
@@ -32,11 +30,10 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -45,25 +42,30 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             forexfactory-scraper/requirements.txt
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r forexfactory-scraper/requirements.txt
-
       - name: Verify scraper source
         run: |
           test -f forexfactory-scraper/update.py
           test -f forexfactory-scraper/src/forexfactory/main.py
-
-      - name: Run synthetic end-to-end Telegram test
+      - name: Run accelerated end-to-end test through orchestrator
         if: inputs.mode == 'test'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID_SER: ${{ secrets.TELEGRAM_CHAT_ID_SER }}
-        run: python test_pipeline.py
-
+        run: |
+          python orchestrator.py \
+            --mode test \
+            --release-date "${{ inputs.release_date }}" \
+            --release-time "${{ inputs.release_time }}" \
+            --timezone "Europe/Chisinau" \
+            --test-pre-release-seconds 10 \
+            --test-to-release-seconds 5 \
+            --test-poll-seconds 5 \
+            --test-inject-after-polls 2
       - name: Run real release orchestrator
         if: inputs.mode == 'release'
         env:
@@ -71,6 +73,7 @@ jobs:
           TELEGRAM_CHAT_ID_SER: ${{ secrets.TELEGRAM_CHAT_ID_SER }}
         run: |
           python orchestrator.py \
+            --mode release \
             --release-date "${{ inputs.release_date }}" \
             --release-time "${{ inputs.release_time }}" \
             --timezone "Europe/Chisinau"
