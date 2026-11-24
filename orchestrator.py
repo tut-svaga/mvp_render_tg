@@ -128,10 +128,16 @@ def main() -> int:
 
     deadline = release + timedelta(minutes=args.max_wait_minutes)
     attempt = 0
+    # The release checkpoint (or the immediate refresh when started late)
+    # has just updated the cache. Check it first; subsequent refreshes are
+    # separated by the configured polling interval.
+    update_already_run = True
     while datetime.now(tz) <= deadline:
         attempt += 1
         LOG.info("Post-release update/check #%d", attempt)
-        run_update(update_script, scraper_dir)
+        if not update_already_run:
+            run_update(update_script, scraper_dir)
+        update_already_run = False
         if check_actuals(watcher, cache, args.release_date, actuals_json):
             LOG.info("All eight Actual values are present. Starting prediction pipeline.")
             break
