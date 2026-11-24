@@ -312,13 +312,13 @@ def main() -> int:
     else:
         # Always fetch immediately, even if the workflow starts between checkpoints.
         LOG.info("Initial calendar refresh at workflow start.")
-        refresh_with_retry(update_script, scraper_dir, production_cache, args.timezone)
+        try:
+            refresh_with_retry(update_script, scraper_dir, production_cache, args.timezone)
+        except Exception:
+            LOG.exception("Initial Forex Factory refresh failed; scheduled retries will continue.")
         if not watcher_check(watcher, production_cache, args.release_date,
                              input_json, pre_release=True):
-            raise RuntimeError(
-                "Pre-release calendar is incomplete: one or more reports lack Forecast/Previous. "
-                "No prediction will be sent."
-            )
+            LOG.warning("Initial calendar snapshot is incomplete; will recheck at release checkpoints.")
         checkpoints = [
             ("T-15 minutes", release - timedelta(minutes=15)),
             ("T-1 minute", release - timedelta(minutes=1)),
@@ -331,12 +331,13 @@ def main() -> int:
                     continue
                 wait_until(checkpoint)
                 LOG.info("Checkpoint %s: refresh calendar.", label)
-                refresh_with_retry(update_script, scraper_dir, production_cache, args.timezone)
+                try:
+                    refresh_with_retry(update_script, scraper_dir, production_cache, args.timezone)
+                except Exception:
+                    LOG.exception("Calendar refresh failed at %s; will retry later.", label)
                 if not watcher_check(watcher, production_cache, args.release_date,
                                      input_json, pre_release=True):
-                    raise RuntimeError(
-                        f"Pre-release calendar incomplete at {label}; refusing to proceed."
-                    )
+                    LOG.warning("Calendar still lacks Forecast/Previous at %s; waiting for next refresh.", label)
         poll_deadline = time.monotonic() + args.max_wait_minutes * 60
 
     failed_checks = 0
