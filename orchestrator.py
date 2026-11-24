@@ -49,6 +49,23 @@ def clear_test_actuals(source: Path, destination: Path) -> None:
     with destination.open("w", encoding="utf-8", newline="") as f: csv.writer(f).writerows(rows)
     LOG.info("Prepared isolated test cache; cleared Actual values in %d column(s).", len(indices))
 
+def clear_cache_actuals(cache: Path) -> None:
+    """Keep test mode deterministic even when the real event is already historical."""
+    with cache.open("r", encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.reader(f))
+    if not rows:
+        raise ValueError(f"Test cache is empty: {cache}")
+    indices = [i for i, name in enumerate(rows[0]) if name.strip().lower() == "actual"]
+    if not indices:
+        raise ValueError("Test cache has no Actual column.")
+    for row in rows[1:]:
+        for i in indices:
+            if i < len(row):
+                row[i] = ""
+    with cache.open("w", encoding="utf-8", newline="") as f:
+        csv.writer(f).writerows(rows)
+    LOG.info("TEST MODE: cleared Actual values after scraper refresh.")
+
 def inject_synthetic_actuals(cache: Path, release_date: str, report_names=None) -> None:
     with cache.open("r", encoding="utf-8-sig", newline="") as f: rows = list(csv.reader(f))
     header = [v.strip().lower() for v in rows[0]]
@@ -114,12 +131,15 @@ def main() -> int:
         LOG.warning("=== TEST MODE: production cache is isolated and will not be modified ===")
         LOG.info("SIMULATED T-15 refresh")
         run_update(update_script, scraper_dir, cache, a.timezone)
+        clear_cache_actuals(cache)
         time.sleep(max(0, a.test_pre_release_seconds))
         LOG.info("SIMULATED T-1 refresh")
         run_update(update_script, scraper_dir, cache, a.timezone)
+        clear_cache_actuals(cache)
         time.sleep(max(0, a.test_to_release_seconds))
         LOG.info("SIMULATED RELEASE %s %s refresh", a.release_date, a.release_time)
         run_update(update_script, scraper_dir, cache, a.timezone)
+        clear_cache_actuals(cache)
         poll_seconds, deadline = a.test_poll_seconds, time.monotonic() + 180
     else:
         if a.poll_seconds <= 0 or a.max_wait_minutes <= 0: p.error("Polling values must be positive.")
@@ -143,6 +163,7 @@ def main() -> int:
         if a.mode == "test":
             LOG.info("TEST post-release poll #%d: refreshing scraper", attempt)
             run_update(update_script, scraper_dir, cache, a.timezone)
+            clear_cache_actuals(cache)
             if failed_checks == a.test_inject_after_polls:
                 # Deliberately publish only seven values first. The watcher must
                 # report the eighth as missing and keep waiting for the next poll.
