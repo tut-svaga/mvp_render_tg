@@ -49,26 +49,28 @@ def clear_test_actuals(source: Path, destination: Path) -> None:
     with destination.open("w", encoding="utf-8", newline="") as f: csv.writer(f).writerows(rows)
     LOG.info("Prepared isolated test cache; cleared Actual values in %d column(s).", len(indices))
 
-def inject_synthetic_actuals(cache: Path, release_date: str) -> None:
+def inject_synthetic_actuals(cache: Path, release_date: str, report_names=None) -> None:
     with cache.open("r", encoding="utf-8-sig", newline="") as f: rows = list(csv.reader(f))
     header = [v.strip().lower() for v in rows[0]]
     event_i = [i for i, v in enumerate(header) if v == "event"]
     date_i = [i for i, v in enumerate(header) if v in {"datetime", "date", "datetime_local", "datetime_utc"}]
     actual_i = [i for i, v in enumerate(header) if v == "actual"]
     if not event_i or not actual_i: raise ValueError("Test cache must contain Event and Actual columns.")
+    targets = set(REPORTS if report_names is None else report_names)
     injected = set()
     for row in rows[1:]:
         event = next((row[i].strip() for i in event_i if i < len(row) and row[i].strip()), "")
-        if event not in REPORTS: continue
+        if event not in targets: continue
         row_date = next((row[i].strip()[:10] for i in date_i if i < len(row) and row[i].strip()), "")
         if row_date != release_date: continue
         for i in actual_i:
             if i < len(row): row[i] = REPORTS[event]
         injected.add(event)
-    missing = sorted(set(REPORTS) - injected)
+    missing = sorted(targets - injected)
     if missing: raise RuntimeError("Missing reports in test cache: " + ", ".join(missing))
     with cache.open("w", encoding="utf-8", newline="") as f: csv.writer(f).writerows(rows)
-    LOG.warning("TEST MODE: synthetic Actual values injected into isolated cache %s", cache)
+    LOG.warning("TEST MODE: synthetic Actual values injected for %d/%d reports: %s",
+                len(injected), len(REPORTS), ", ".join(sorted(injected)))
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Run the eight-report XAUUSD release pipeline.")
@@ -141,7 +143,11 @@ def main() -> int:
         if a.mode == "test":
             LOG.info("TEST post-release poll #%d: refreshing scraper", attempt)
             run_update(update_script, scraper_dir, cache, a.timezone)
-            if failed_checks >= a.test_inject_after_polls:
+            if failed_checks == a.test_inject_after_polls:
+                # Deliberately publish only seven values first. The watcher must
+                # report the eighth as missing and keep waiting for the next poll.
+                inject_synthetic_actuals(cache, a.release_date, list(REPORTS)[:-1])
+            elif failed_checks > a.test_inject_after_polls:
                 inject_synthetic_actuals(cache, a.release_date)
         elif attempt > 1:
             LOG.info("Post-release poll #%d: refreshing scraper", attempt)
