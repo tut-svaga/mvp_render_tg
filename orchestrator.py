@@ -277,12 +277,12 @@ def main() -> int:
         if not watcher_check(watcher, cache, args.release_date, input_json, pre_release=True):
             raise RuntimeError("Test calendar fixture failed pre-release Forecast/Previous validation.")
         time.sleep(args.test_checkpoint_seconds)
-        run_update(update_script, scraper_dir, cache, args.timezone)
+        refresh_with_retry(update_script, scraper_dir, cache, args.timezone)
         clear_actuals(cache)
         if not watcher_check(watcher, cache, args.release_date, input_json, pre_release=True):
             raise RuntimeError("Test calendar became incomplete before simulated release.")
         time.sleep(args.test_release_gap_seconds)
-        run_update(update_script, scraper_dir, cache, args.timezone)
+        refresh_with_retry(update_script, scraper_dir, cache, args.timezone)
         clear_actuals(cache)
         poll_deadline = time.monotonic() + args.max_wait_minutes * 60
     else:
@@ -307,7 +307,7 @@ def main() -> int:
                     continue
                 wait_until(checkpoint)
                 LOG.info("Checkpoint %s: refresh calendar.", label)
-                run_update(update_script, scraper_dir, production_cache, args.timezone)
+                refresh_with_retry(update_script, scraper_dir, production_cache, args.timezone)
                 if not watcher_check(watcher, production_cache, args.release_date,
                                      input_json, pre_release=True):
                     raise RuntimeError(
@@ -323,7 +323,7 @@ def main() -> int:
         LOG.info("Actual polling attempt #%d; refresh interval=%ds.", attempt, args.poll_seconds)
         if test_mode:
             # Test-only controlled release: first 7/8, then 8/8 on a later poll.
-            run_update(update_script, scraper_dir, cache, args.timezone)
+            refresh_with_retry(update_script, scraper_dir, cache, args.timezone)
             clear_actuals(cache)
             if failed_checks == 0:
                 inject_test_actuals(cache, args.release_date, list(REPORTS)[:-1])
