@@ -186,7 +186,11 @@ def read_cache(cache_path: Path, target_date: date) -> tuple[dict[str, dict[str,
         record = found.get(name)
         if not record or not is_filled(record.get("forecast")):
             missing.append(f"{name} (Forecast отсутствует)")
-        elif not is_filled(record.get("actual")):
+            continue
+        if not is_filled(record.get("previous")):
+            missing.append(f"{name} (Previous отсутствует)")
+            continue
+        if not is_filled(record.get("actual")):
             missing.append(f"{name} (Actual ещё не опубликован)")
 
     return found, missing, matched_rows
