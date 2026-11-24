@@ -160,6 +160,27 @@ def prepare_test_cache(template: Path, destination: Path, release_date: str,
              release_date, release_time)
 
 
+def filter_test_fixture_rows(cache: Path, release_date: str, release_time: str) -> None:
+    """Keep the synthetic target rows isolated from live same-day events."""
+    with cache.open("r", encoding="utf-8-sig", newline="") as stream:
+        rows = list(csv.reader(stream))
+    header = [value.strip().lower() for value in rows[0]]
+    event_i, date_i = header.index("event"), header.index("date")
+    time_i = header.index("time") if "time" in header else None
+    kept = [rows[0]]
+    target_time = release_time[:5]
+    for row in rows[1:]:
+        if event_i < len(row) and date_i < len(row):
+            event = row[event_i].strip()
+            if event in REPORTS and row[date_i].strip() == release_date:
+                row_time = row[time_i].strip()[:5] if time_i is not None and time_i < len(row) else ""
+                if row_time != target_time:
+                    continue
+        kept.append(row)
+    with cache.open("w", encoding="utf-8", newline="") as stream:
+        csv.writer(stream).writerows(kept)
+
+
 def inject_test_actuals(cache: Path, release_date: str, names: list[str]) -> None:
     """Synthetic release values are deliberately restricted to test cache."""
     with cache.open("r", encoding="utf-8-sig", newline="") as stream:
@@ -273,16 +294,19 @@ def main() -> int:
         LOG.warning("TEST MODE: production cache is not used or modified.")
         # Same updater, same CSV format and same cache path contract as release mode.
         refresh_with_retry(update_script, scraper_dir, cache, args.timezone)
+        filter_test_fixture_rows(cache, args.release_date, args.release_time)
         clear_actuals(cache)
         if not watcher_check(watcher, cache, args.release_date, input_json, pre_release=True):
             raise RuntimeError("Test calendar fixture failed pre-release Forecast/Previous validation.")
         time.sleep(args.test_checkpoint_seconds)
         refresh_with_retry(update_script, scraper_dir, cache, args.timezone)
+        filter_test_fixture_rows(cache, args.release_date, args.release_time)
         clear_actuals(cache)
         if not watcher_check(watcher, cache, args.release_date, input_json, pre_release=True):
             raise RuntimeError("Test calendar became incomplete before simulated release.")
         time.sleep(args.test_release_gap_seconds)
         refresh_with_retry(update_script, scraper_dir, cache, args.timezone)
+        filter_test_fixture_rows(cache, args.release_date, args.release_time)
         clear_actuals(cache)
         poll_deadline = time.monotonic() + args.max_wait_minutes * 60
     else:
@@ -324,6 +348,7 @@ def main() -> int:
         if test_mode:
             # Test-only controlled release: first 7/8, then 8/8 on a later poll.
             refresh_with_retry(update_script, scraper_dir, cache, args.timezone)
+            filter_test_fixture_rows(cache, args.release_date, args.release_time)
             clear_actuals(cache)
             if failed_checks == 0:
                 inject_test_actuals(cache, args.release_date, list(REPORTS)[:-1])
