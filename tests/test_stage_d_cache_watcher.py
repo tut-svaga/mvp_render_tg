@@ -44,6 +44,13 @@ class CacheWatcherTests(unittest.TestCase):
             self.assertEqual(len(found), 8)
             self.assertEqual(missing, [])
 
+    def test_release_readiness_also_requires_previous(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = self.write_cache(directory, missing_previous=watcher.REPORTS[-1])
+            found, missing, _ = watcher.read_cache(cache, watcher.date(2026, 11, 25))
+            self.assertEqual(len(missing), 1)
+            self.assertIn("Previous", missing[0])
+
     def test_pre_release_requires_forecast_and_previous_but_not_actual(self):
         with tempfile.TemporaryDirectory() as directory:
             cache = self.write_cache(
